@@ -28,6 +28,10 @@ static size_t command_len = 0;
 static uint8_t shift_down = 0;
 static uint8_t caps_lock = 0;
 
+static char notes_buffer[256];
+static size_t notes_len = 0;
+
+
 static inline uint8_t inb(uint16_t port) {
     uint8_t value;
     __asm__ volatile ("inb %1, %0" : "=a"(value) : "Nd"(port));
@@ -135,6 +139,10 @@ static void show_command(void) {
         print_at(2, 21, "ps       show kernel service registry", COLOR_TEXT);
         print_at(2, 22, "calc     calculator app", COLOR_TEXT);
         print_at(2, 23, "guess <n> guess game (1-10)", COLOR_TEXT);
+        print_at(35, 14, "agent <1-10>  ping agent", COLOR_TEXT);
+        print_at(35, 15, "note <txt>    save to RAM notepad", COLOR_TEXT);
+        print_at(35, 16, "notes         read notepad", COLOR_TEXT);
+        print_at(35, 17, "sysmon        system monitor", COLOR_TEXT);
     } else if (same_command(command, "status")) {
         print_at(2, 14, "SESSION=EPHEMERAL  NETWORK=OFF  DISK=UNMOUNTED", COLOR_GREEN);
         print_at(2, 15, "CAMERA=OFF  MICROPHONE=OFF  TELEMETRY=DISABLED", COLOR_GREEN);
@@ -229,6 +237,76 @@ static void show_command(void) {
             target_str[2] = 0;
             print_at(25, 15, target_str, COLOR_TEXT);
         }
+    } else if (starts_with(command, "agent ")) {
+        const char* id_str = command + 6;
+        int id = 0;
+        while (*id_str >= '0' && *id_str <= '9') { id = id * 10 + (*id_str - '0'); id_str++; }
+        if (id >= 1 && id <= 10) {
+            print_at(2, 14, "AGENT COMMUNICATION LINK", COLOR_CYAN);
+            char resp[64] = "Agent 00 reports: Awaiting instructions.";
+            resp[6] = '0' + (id / 10);
+            resp[7] = '0' + (id % 10);
+            print_at(2, 15, resp, COLOR_GREEN);
+        } else {
+            print_at(2, 14, "Agent ID must be between 1 and 10.", COLOR_AMBER);
+        }
+    } else if (same_command(command, "notes")) {
+        print_at(2, 14, "NOTEPAD (RAM ONLY)", COLOR_CYAN);
+        if (notes_len == 0) {
+            print_at(2, 15, "No notes saved in this session.", COLOR_MUTED);
+        } else {
+            notes_buffer[notes_len] = 0;
+            size_t y = 15;
+            size_t x = 2;
+            const char* content = notes_buffer;
+            while (*content && y <= 21) {
+                if (*content == '\n') { y++; x = 2; }
+                else { put_cell(x++, y, *content, COLOR_TEXT); if (x >= 57) { y++; x = 2; } }
+                content++;
+            }
+        }
+    } else if (starts_with(command, "note ")) {
+        const char* note_text = command + 5;
+        while (*note_text == ' ') note_text++;
+
+        while (*note_text && notes_len < 254) {
+            notes_buffer[notes_len++] = *note_text++;
+        }
+        notes_buffer[notes_len++] = '\n'; // auto newline
+
+        print_at(2, 14, "Note saved to RAM.", COLOR_GREEN);
+    } else if (same_command(command, "sysmon")) {
+        print_at(2, 14, "SYSTEM MONITOR", COLOR_CYAN);
+
+        size_t mem_used = memory_used() / 1024;
+        size_t mem_avail = memory_available() / 1024;
+        size_t procs = process_count();
+        uint64_t ticks = kernel_ticks();
+
+        char mem_str[32] = "RAM: 000K USED / 000K AVAIL";
+        mem_str[5] = '0' + ((mem_used / 100) % 10);
+        mem_str[6] = '0' + ((mem_used / 10) % 10);
+        mem_str[7] = '0' + (mem_used % 10);
+
+        mem_str[17] = '0' + ((mem_avail / 100) % 10);
+        mem_str[18] = '0' + ((mem_avail / 10) % 10);
+        mem_str[19] = '0' + (mem_avail % 10);
+        print_at(2, 16, mem_str, COLOR_TEXT);
+
+        char proc_str[32] = "PROCESSES: 00 / 32 ACTIVE";
+        proc_str[11] = '0' + ((procs / 10) % 10);
+        proc_str[12] = '0' + (procs % 10);
+        print_at(2, 17, proc_str, COLOR_TEXT);
+
+        char tick_str[32] = "UPTIME TICKS: 00000";
+        uint32_t t32 = (uint32_t)ticks;
+        tick_str[14] = '0' + ((t32 / 10000) % 10);
+        tick_str[15] = '0' + ((t32 / 1000) % 10);
+        tick_str[16] = '0' + ((t32 / 100) % 10);
+        tick_str[17] = '0' + ((t32 / 10) % 10);
+        tick_str[18] = '0' + (t32 % 10);
+        print_at(2, 18, tick_str, COLOR_TEXT);
+
     } else if (command_len != 0) {
         print_at(2, 14, "Unknown command. Type help.", COLOR_AMBER);
     }
